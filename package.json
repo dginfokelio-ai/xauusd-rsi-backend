@@ -1,0 +1,12 @@
+{
+  "name": "xauusd-rsi-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "firebase-admin": "^12.0.0",
+    "node-cron": "^3.0.3"
+  }
+}

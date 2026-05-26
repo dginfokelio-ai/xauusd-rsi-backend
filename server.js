@@ -82,7 +82,7 @@ function checkAlerts(rsi) {
 async function fetchAndCheck() {
   try {
     console.log('[CRON] A verificar RSI XAUUSD...');
-    const res = await axios.get('https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=50&apikey=' + TWELVE_DATA_API_KEY);
+    const res = await axios.get('https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=200&apikey=' + TWELVE_DATA_API_KEY);
     if (!res.data.values || res.data.values.length < 15) {
       console.log('[CRON] Dados insuficientes.');
       return;

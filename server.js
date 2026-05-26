@@ -1,6 +1,7 @@
 const express = require('express');
+const axios = require('axios');
 const admin = require('firebase-admin');
-const WebSocket = require('ws');
+const cron = require('node-cron');
 
 const app = express();
 app.use(express.json());
@@ -8,14 +9,12 @@ app.use(express.json());
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const BACKEND_SECRET = process.env.BACKEND_SECRET;
 
 let fcmTokens = [];
 let previousRsi = null;
 let alertCooldown = {};
-let closePrices = [];
-const MAX_CLOSES = 200;
 
 const OVERBOUGHT_LEVELS = [70];
 const OVERSOLD_LEVELS = [35, 30, 25, 20];
@@ -80,42 +79,22 @@ function checkAlerts(rsi) {
   previousRsi = rsi;
 }
 
-function connectFinnhub() {
-  const ws = new WebSocket('wss://ws.finnhub.io?token=' + FINNHUB_API_KEY);
-
-  ws.on('open', () => {
-    console.log('[WS] Ligado ao Finnhub');
-    ws.send(JSON.stringify({ type: 'subscribe', symbol: 'OANDA:XAU/USD' }));
-  });
-
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.type === 'trade' && msg.data) {
-        for (const trade of msg.data) {
-          const price = trade.p;
-          closePrices.push(price);
-          if (closePrices.length > MAX_CLOSES) closePrices.shift();
-          const rsi = calculateRSI(closePrices);
-          if (rsi !== null) {
-            console.log('[RSI] ' + rsi.toFixed(2) + ' | Preco: ' + price);
-            checkAlerts(rsi);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[WS] Erro ao processar mensagem: ' + e.message);
+async function fetchAndCheck() {
+  try {
+    console.log('[CRON] A verificar RSI XAUUSD...');
+    const res = await axios.get('https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=50&apikey=' + TWELVE_DATA_API_KEY);
+    if (!res.data.values || res.data.values.length < 15) {
+      console.log('[CRON] Dados insuficientes.');
+      return;
     }
-  });
-
-  ws.on('close', () => {
-    console.log('[WS] Ligacao fechada. A reconectar em 5s...');
-    setTimeout(connectFinnhub, 5000);
-  });
-
-  ws.on('error', (e) => {
-    console.error('[WS] Erro: ' + e.message);
-  });
+    const closes = res.data.values.map(v => parseFloat(v.close)).reverse();
+    const rsi = calculateRSI(closes);
+    if (rsi === null) return;
+    console.log('[RSI] ' + rsi.toFixed(2) + ' | Anterior: ' + (previousRsi ? previousRsi.toFixed(2) : 'N/A'));
+    checkAlerts(rsi);
+  } catch (e) {
+    console.error('[CRON] Erro: ' + e.message);
+  }
 }
 
 app.post('/register', (req, res) => {
@@ -140,8 +119,11 @@ app.post('/test-push', (req, res) => {
   res.json({ success: true });
 });
 
+// Corre a cada 30 segundos
+cron.schedule('*/30 * * * * *', fetchAndCheck);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('[SERVER] Backend XAUUSD RSI a correr na porta ' + PORT);
-  connectFinnhub();
+  fetchAndCheck();
 });
